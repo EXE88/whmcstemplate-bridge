@@ -5,7 +5,8 @@ SPA) and a WHMCS installation. The frontend talks only to this service; WHMCS
 credentials, hostname and API surface never leave the server.
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the design, layer rules,
-caching strategy and security model.
+caching strategy and security model, and [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)
+for putting it on a server.
 
 ## Quick start
 

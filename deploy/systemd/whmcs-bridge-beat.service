@@ -1,0 +1,24 @@
+[Unit]
+Description=WHMCS Bridge Celery beat (scheduled jobs, e.g. catalogue warming)
+After=network-online.target redis-server.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=bridge
+Group=bridge
+WorkingDirectory=/srv/whmcs-bridge
+EnvironmentFile=/srv/whmcs-bridge/.env
+ExecStart=/srv/whmcs-bridge/.venv/bin/celery -A config beat \
+    --loglevel=info --schedule=/srv/whmcs-bridge/run/celerybeat-schedule
+Restart=always
+RestartSec=5
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/srv/whmcs-bridge
+
+[Install]
+WantedBy=multi-user.target

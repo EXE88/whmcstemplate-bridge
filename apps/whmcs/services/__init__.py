@@ -16,6 +16,7 @@ from .accounts import AccountService
 from .billing import BillingService
 from .catalogue import CatalogueService
 from .hosting import DomainService, ServiceService
+from .orders import OrderService
 from .support import SupportService
 
 __all__ = [
@@ -23,6 +24,7 @@ __all__ = [
     "BillingService",
     "CatalogueService",
     "DomainService",
+    "OrderService",
     "ServiceService",
     "SupportService",
 ]

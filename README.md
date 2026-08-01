@@ -83,8 +83,24 @@ apps/accounts/     JWT auth backed by WHMCS ValidateLogin
 apps/billing/      invoices, transactions, credit
 apps/support/      tickets
 apps/hosting/      products, services, domains
+apps/orders/       basket, checkout, payment handoff
 tests/             transport + API tests with WHMCS mocked at the HTTP layer
 ```
+
+## Placing an order
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/orders/ \
+  -H "Authorization: Bearer $ACCESS" \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -H "Content-Type: application/json" \
+  -d '{"payment_method":"zarinpal","items":[{"type":"product","product_id":5,"billing_cycle":"annually","domain":"example.ir"},{"type":"domain","domain":"example.ir","action":"register","years":2}]}'
+```
+
+Returns `{order_id, invoice_id, payment_url, service_ids, domain_ids}` - send
+the browser to `payment_url` and WHMCS handles the gateway and provisioning.
+See "Checkout" in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the rules
+this flow enforces.
 
 ## Commands
 

@@ -59,13 +59,31 @@ def refresh_client_cache(whmcs_client_id: int) -> None:
     ServiceService().list_services(whmcs_client_id, page)
 
 
-@shared_task(name="whmcs.provision.place_order", bind=True, **RETRY_KWARGS)
+@shared_task(name="whmcs.provision.place_order", bind=True, max_retries=0)
 def place_order(self, whmcs_client_id: int, payload: dict) -> dict:
     """
-    Placeholder for the heavy ordering flow.
+    Place an order off the request path.
 
-    Ordering touches registrars and provisioning modules and can take tens of
-    seconds, so the view should accept the request, queue this task and return
-    ``202`` with a task id the SPA can poll (or receive over WebSocket later).
+    ``POST /orders/`` is synchronous because AddOrder is a single fast call, but
+    a basket that registers several domains can make WHMCS talk to registrars
+    and take tens of seconds. When that becomes a problem, the view can queue
+    this instead and answer 202 with the task id.
+
+    ``payload`` must already be serializer-validated - a task is not a way to
+    skip validation.
+
+    Deliberately **not retried**: if the AddOrder response is lost in transit the
+    order may still have been created, and a retry would bill the customer
+    twice. A failure surfaces to the customer, who retries with the same
+    idempotency key.
     """
-    raise NotImplementedError("Wire up AddOrder/AcceptOrder when checkout ships.")
+    from .services import OrderService
+
+    return OrderService().create_order(
+        whmcs_client_id,
+        items=payload["items"],
+        payment_method=payload["payment_method"],
+        promo_code=payload.get("promo_code", ""),
+        nameservers=payload.get("nameservers"),
+        client_ip=payload.get("client_ip", ""),
+    )

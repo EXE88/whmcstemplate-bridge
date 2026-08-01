@@ -8,6 +8,7 @@ api_v1 = [
     path("billing/", include("apps.billing.urls")),
     path("support/", include("apps.support.urls")),
     path("hosting/", include("apps.hosting.urls")),
+    path("orders/", include("apps.orders.urls")),
     path("", include("apps.core.urls")),
 ]
 

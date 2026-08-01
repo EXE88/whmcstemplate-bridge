@@ -91,6 +91,38 @@ replaced with a generic sentence and logged in full server-side.
 | Token theft | 15-minute access tokens, rotating refresh tokens with blacklist on logout |
 | Password storage | Customer passwords are never stored locally (`set_unusable_password`); auth round-trips to `ValidateLogin` |
 
+## 5b. Checkout
+
+```
+GET  /hosting/products/            browse
+GET  /hosting/domains/lookup/      availability
+GET  /orders/payment-methods/      gateways enabled in WHMCS
+POST /orders/                      AddOrder -> {order_id, invoice_id, payment_url}
+     ->  redirect the browser to payment_url (WHMCS hosted invoice page)
+     ->  WHMCS takes the payment and provisions per its own automation
+GET  /orders/<id>/                 status
+```
+
+Rules this flow is built on:
+
+* **The basket carries no prices.** `priceoverride`, `domainpriceoverride`,
+  `promooverride`, `affid` and `noinvoice` exist in the WHMCS API and would let
+  a caller name their own price; no serializer accepts them and the service
+  hardcodes the invoice flags. There is a test that submits them and asserts
+  they never reach WHMCS.
+* **The bridge never provisions.** `AddOrder` creates a pending order and an
+  invoice; `AcceptOrder` is not called from any customer path.
+* **No card data.** Payment continues on WHMCS' hosted invoice page, so the
+  gateway form and any 3-D Secure step stay on their side.
+* **`Idempotency-Key`.** A double-clicked or retried POST with the same key
+  returns the original order instead of buying twice; a concurrent duplicate
+  gets `order_in_progress`. Keys are namespaced per customer.
+* **Basket lines map to WHMCS' parallel arrays** (`pid[0]` is priced with
+  `billingcycle[0]`, a domain on the same line uses `domaintype[0]`). Indices
+  are emitted explicitly so a product-only line and a domain-only line cannot
+  slide into each other.
+* Cancellation is allowed only while the order is `Pending`.
+
 ## 6. Caching
 
 Cache-aside, namespaced per owner, invalidated by version bump:
@@ -164,6 +196,10 @@ need for short TTLs.
 | GET/DELETE | `/api/v1/support/tickets/<id>/` | JWT |
 | POST | `/api/v1/support/tickets/<id>/replies/` | JWT |
 | GET | `/api/v1/hosting/products/` `tld-pricing/` `domains/lookup/` | public |
+| GET | `/api/v1/orders/payment-methods/` | public |
+| GET/POST | `/api/v1/orders/` | JWT |
+| GET | `/api/v1/orders/<id>/` | JWT |
+| POST | `/api/v1/orders/<id>/cancel/` | JWT |
 | GET | `/api/v1/hosting/services/[<id>/]` | JWT |
 | POST | `/api/v1/hosting/services/<id>/password/` `cancellation/` | JWT |
 | GET | `/api/v1/hosting/domains/[<id>/]` | JWT |

@@ -1,0 +1,87 @@
+"""
+Cache-aside helpers.
+
+Design rules:
+
+* every key is namespaced by *owner* (``client:42:invoices:...``) so a cached
+  payload can never be served to a different customer;
+* TTLs come from ``settings.CACHE_TTL`` - tune per environment, 0 disables;
+* every namespace carries a version counter, so a write can invalidate a whole
+  family of keys in one Redis op instead of scanning for patterns.
+"""
+
+import hashlib
+import json
+import logging
+from collections.abc import Callable
+from typing import Any
+
+from django.conf import settings
+from django.core.cache import cache
+
+logger = logging.getLogger(__name__)
+
+_VERSION_TTL = 60 * 60 * 24 * 7
+
+
+def ttl_for(bucket: str) -> int:
+    return int(settings.CACHE_TTL.get(bucket, 0))
+
+
+def _version_key(namespace: str) -> str:
+    return f"ver:{namespace}"
+
+
+def namespace_version(namespace: str) -> int:
+    version = cache.get(_version_key(namespace))
+    if version is None:
+        version = 1
+        cache.set(_version_key(namespace), version, _VERSION_TTL)
+    return int(version)
+
+
+def invalidate(namespace: str) -> None:
+    """Bump the namespace version - every key built from it becomes unreachable."""
+    try:
+        cache.incr(_version_key(namespace))
+    except ValueError:
+        # The counter expired or was evicted while payload keys may still be
+        # alive at v1. Restarting at 1 would leave those readable, so skip past
+        # it - the whole point of this call is that nothing older survives.
+        cache.set(_version_key(namespace), 2, _VERSION_TTL)
+    logger.debug("cache namespace invalidated: %s", namespace)
+
+
+def build_key(namespace: str, *parts: Any, **kwargs: Any) -> str:
+    payload = json.dumps([parts, sorted(kwargs.items())], default=str, sort_keys=True)
+    # Not a security boundary - just a short, stable key from the arguments.
+    digest = hashlib.sha1(payload.encode(), usedforsecurity=False).hexdigest()[:16]
+    return f"{namespace}:v{namespace_version(namespace)}:{digest}"
+
+
+def get_or_set(namespace: str, bucket: str, producer: Callable[[], Any], *parts: Any) -> Any:
+    """
+    Cache-aside read for per-customer data.
+
+        get_or_set(client_namespace(cid, "invoices"), "invoices",
+                   lambda: fetch(), page, status)
+
+    A later write calls ``invalidate(client_namespace(cid, "invoices"))`` and
+    only *that* customer's cached invoices disappear.
+    """
+    ttl = ttl_for(bucket)
+    if ttl <= 0:
+        return producer()
+    key = build_key(namespace, *parts)
+    hit = cache.get(key)
+    if hit is not None:
+        return hit
+    value = producer()
+    if value is not None:
+        cache.set(key, value, ttl)
+    return value
+
+
+def client_namespace(whmcs_client_id: int, resource: str) -> str:
+    """Per-customer namespace: ``client:42:invoices``."""
+    return f"client:{int(whmcs_client_id)}:{resource}"

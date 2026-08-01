@@ -1,0 +1,22 @@
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+exclude = ["migrations", ".venv", "venv"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "C4", "DJ", "S"]
+ignore = ["S101", "B008"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S105", "S106"]
+
+[tool.black]
+line-length = 100
+target-version = ["py312"]
+
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "config.settings.local"
+python_files = ["test_*.py"]
+addopts = "-q --strict-markers"
+testpaths = ["tests"]
+asyncio_default_fixture_loop_scope = "function"

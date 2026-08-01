@@ -1,0 +1,50 @@
+services:
+  api:
+    build: .
+    command: gunicorn config.wsgi:application -b 0.0.0.0:8000 -w 4 --timeout 60
+    env_file: .env
+    environment:
+      DJANGO_SETTINGS_MODULE: config.settings.production
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/1
+      DATABASE_URL: postgres://bridge:bridge@db:5432/bridge
+    ports:
+      - "8000:8000"
+    depends_on: [db, redis]
+
+  worker:
+    build: .
+    command: celery -A config worker -l info -Q default,provisioning,sync
+    env_file: .env
+    environment:
+      DJANGO_SETTINGS_MODULE: config.settings.production
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/1
+      DATABASE_URL: postgres://bridge:bridge@db:5432/bridge
+    depends_on: [redis, db]
+
+  beat:
+    build: .
+    command: celery -A config beat -l info
+    env_file: .env
+    environment:
+      DJANGO_SETTINGS_MODULE: config.settings.production
+      CELERY_BROKER_URL: redis://redis:6379/1
+      DATABASE_URL: postgres://bridge:bridge@db:5432/bridge
+    depends_on: [redis, db]
+
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: bridge
+      POSTGRES_PASSWORD: bridge
+      POSTGRES_DB: bridge
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    command: redis-server --save "" --appendonly no
+
+volumes:
+  pgdata:

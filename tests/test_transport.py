@@ -76,6 +76,22 @@ def test_invalid_ip_is_an_auth_error():
 
 
 @respx.mock
+def test_error_envelope_on_a_403_is_still_classified_as_auth():
+    """A non-whitelisted IP answers 403 *with* the WHMCS error envelope - it must
+    not be mistaken for a transport failure and retried."""
+    route = respx.post(WHMCS_ENDPOINT).mock(
+        return_value=httpx.Response(
+            403, json={"result": "error", "message": "Invalid IP 203.0.113.9"}
+        )
+    )
+
+    with pytest.raises(WhmcsAuthError):
+        get_client().call(Action.WHMCS_DETAILS)
+
+    assert route.call_count == 1
+
+
+@respx.mock
 def test_html_response_becomes_transport_error():
     respx.post(WHMCS_ENDPOINT).mock(return_value=httpx.Response(200, text="<html>502</html>"))
     with pytest.raises(WhmcsTransportError):

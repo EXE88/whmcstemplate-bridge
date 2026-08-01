@@ -206,7 +206,10 @@ REST_FRAMEWORK = {
     "DEFAULT_THROTTLE_RATES": {
         "anon": env("THROTTLE_ANON", default="30/min"),
         "user": env("THROTTLE_USER", default="120/min"),
+        # Per (IP, account) - one account cannot be hammered.
         "login": env("THROTTLE_LOGIN", default="8/min"),
+        # Per IP across all accounts - stops credential stuffing.
+        "login_ip": env("THROTTLE_LOGIN_IP", default="20/min"),
         "write": env("THROTTLE_WRITE", default="20/min"),
     },
     "NUM_PROXIES": env.int("NUM_PROXIES", default=0) or None,

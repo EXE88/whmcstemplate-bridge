@@ -104,10 +104,11 @@ def api_exception_handler(exc, context):
 
     for exc_type, (http_status, code, public_message) in _WHMCS_MAP.items():
         if isinstance(exc, exc_type):
-            # Only WHMCS *validation* messages are safe to forward verbatim -
-            # they are user-facing ("Invalid Client ID"). Everything else is
-            # replaced by a generic message and logged in full.
-            message = public_message or str(exc)
+            # Only WHMCS *validation* messages are forwarded - they are
+            # user-facing ("Invalid Client ID"). Everything else is replaced by
+            # a generic message and logged in full. Forwarded text is capped:
+            # a misbehaving WHMCS module can put a stack trace in there.
+            message = public_message or str(exc)[:200]
             logger.warning("WHMCS error on %s: %s", request_path, exc, exc_info=False)
             return Response(_envelope(code, message), status=http_status)
 

@@ -11,7 +11,7 @@ from rest_framework_simplejwt.tokens import RefreshToken
 
 from apps.core.http import client_ip
 from apps.core.permissions import IsLinkedToWhmcsClient
-from apps.core.throttling import LoginRateThrottle, WriteRateThrottle
+from apps.core.throttling import LoginIPThrottle, LoginRateThrottle, WriteRateThrottle
 from apps.core.views_mixins import ClientScopedAPIView
 from apps.whmcs.services import AccountService
 
@@ -33,7 +33,7 @@ class LoginView(APIView):
 
     permission_classes = [AllowAny]
     authentication_classes: list = []
-    throttle_classes = [LoginRateThrottle]
+    throttle_classes = [LoginIPThrottle, LoginRateThrottle]
 
     @extend_schema(request=WhmcsTokenObtainPairSerializer, responses={200: dict})
     def post(self, request):
@@ -45,7 +45,7 @@ class LoginView(APIView):
 class RegisterView(APIView):
     permission_classes = [AllowAny]
     authentication_classes: list = []
-    throttle_classes = [LoginRateThrottle]
+    throttle_classes = [LoginIPThrottle, LoginRateThrottle]
 
     @extend_schema(request=RegistrationSerializer, responses={201: dict})
     def post(self, request):
@@ -103,7 +103,7 @@ class ProfileView(ClientScopedAPIView):
 
 class PasswordChangeView(ClientScopedAPIView):
     permission_classes = [IsLinkedToWhmcsClient]
-    throttle_classes = [LoginRateThrottle]
+    throttle_classes = [LoginIPThrottle, LoginRateThrottle]
 
     @extend_schema(request=PasswordChangeSerializer, responses={204: None})
     def post(self, request):

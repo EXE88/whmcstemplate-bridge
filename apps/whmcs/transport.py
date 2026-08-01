@@ -123,28 +123,39 @@ class BaseTransport:
             logger.debug("WHMCS -> %s", action)
 
     def _parse(self, response: httpx.Response, action: str, body: dict) -> dict:
-        if response.status_code in RETRYABLE_STATUS:
-            raise WhmcsTransportError(
-                f"WHMCS returned HTTP {response.status_code} for {action}"
-            )
-        if response.status_code == 429:
-            raise WhmcsRateLimited("WHMCS is rate limiting the bridge", action=action)
-        if response.status_code >= 400:
-            raise WhmcsTransportError(
-                f"WHMCS returned HTTP {response.status_code} for {action}"
-            )
-
+        # WHMCS sends its own error envelope with non-2xx statuses - an IP that
+        # is not whitelisted comes back as HTTP 403 with
+        # {"result":"error","message":"Invalid IP x.x.x.x"}. So the body is read
+        # first: reading the status first would turn a permanent auth failure
+        # into a "transport error" and retry it pointlessly.
+        data = None
         try:
-            data = response.json()
+            parsed = response.json()
+            if isinstance(parsed, dict):
+                data = parsed
         except ValueError:
-            # Usually an HTML error page, a WAF challenge, or a PHP fatal.
+            data = None
+
+        if data is None:
+            if response.status_code in RETRYABLE_STATUS:
+                raise WhmcsTransportError(
+                    f"WHMCS returned HTTP {response.status_code} for {action}"
+                )
+            if response.status_code == 429:
+                raise WhmcsRateLimited("WHMCS is rate limiting the bridge", action=action)
+            if response.status_code >= 400:
+                raise WhmcsTransportError(
+                    f"WHMCS returned HTTP {response.status_code} for {action}"
+                )
+            # 2xx that is not a JSON object: an HTML page, a WAF challenge or a
+            # PHP fatal rendered into the body.
             snippet = response.text[:200].replace("\n", " ")
             raise WhmcsTransportError(
                 f"Non-JSON response from WHMCS for {action}: {snippet!r}"
-            ) from None
+            )
 
-        if not isinstance(data, dict):
-            raise WhmcsTransportError(f"Unexpected JSON shape from WHMCS for {action}")
+        if response.status_code == 429:
+            raise WhmcsRateLimited("WHMCS is rate limiting the bridge", action=action)
 
         if data.get("result") == "error" or data.get("status") == "error":
             message = str(data.get("message") or data.get("result") or "Unknown WHMCS error")

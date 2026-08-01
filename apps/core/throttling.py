@@ -36,8 +36,13 @@ class SustainedUserThrottle(ScopedRateThrottle):
 
 
 class LoginRateThrottle(SimpleRateThrottle):
-    """Keyed by client IP + submitted identity, so one IP cannot spray usernames
-    and one username cannot be sprayed from one IP."""
+    """
+    Per (IP, account) bucket: stops one account being brute-forced.
+
+    On its own this does NOT stop credential stuffing - a new email means a new
+    bucket - so it must always be paired with :class:`LoginIPThrottle`, which
+    caps the attempts from an address regardless of which account they target.
+    """
 
     scope = "login"
 
@@ -49,6 +54,15 @@ class LoginRateThrottle(SimpleRateThrottle):
             "scope": self.scope,
             "ident": f"{self.get_ident(request)}:{identity.lower()[:120]}",
         }
+
+
+class LoginIPThrottle(SimpleRateThrottle):
+    """Total credential attempts from one address, whatever account they name."""
+
+    scope = "login_ip"
+
+    def get_cache_key(self, request, view):
+        return self.cache_format % {"scope": self.scope, "ident": self.get_ident(request)}
 
 
 class WriteRateThrottle(SimpleRateThrottle):

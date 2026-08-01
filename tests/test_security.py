@@ -8,6 +8,7 @@ from django.test import RequestFactory
 
 from apps.core.cache import build_key, client_namespace, invalidate
 from apps.core.http import client_ip
+from apps.core.throttling import LoginIPThrottle, LoginRateThrottle
 
 from .conftest import WHMCS_ENDPOINT
 
@@ -31,6 +32,38 @@ def test_password_change_refuses_when_credentials_belong_to_another_client(auth_
 
     assert response.status_code == 401
     assert response.json()["error"]["code"] == "invalid_credentials"
+
+
+@respx.mock
+def test_credential_stuffing_across_accounts_is_capped_per_ip(client, monkeypatch):
+    # DRF binds THROTTLE_RATES on the class at import time, so overriding
+    # settings.REST_FRAMEWORK would not reach it.
+    rates = {
+        **LoginIPThrottle.THROTTLE_RATES,
+        "login": "100/min",  # per-account limit deliberately out of the way
+        "login_ip": "3/min",
+    }
+    monkeypatch.setattr(LoginIPThrottle, "THROTTLE_RATES", rates)
+    monkeypatch.setattr(LoginRateThrottle, "THROTTLE_RATES", rates)
+
+    respx.post(WHMCS_ENDPOINT).mock(
+        return_value=httpx.Response(
+            200, json={"result": "error", "message": "Invalid Email or Password"}
+        )
+    )
+
+    statuses = [
+        client.post(
+            "/api/v1/auth/login/",
+            data={"email": f"victim{i}@example.com", "password": "guess"},
+            content_type="application/json",
+        ).status_code
+        # A different account each time, so the per-account bucket never fills.
+        for i in range(5)
+    ]
+
+    assert statuses[:3] == [401, 401, 401]
+    assert statuses[3:] == [429, 429]
 
 
 def test_forwarded_for_is_ignored_without_configured_proxies(settings):

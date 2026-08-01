@@ -9,6 +9,7 @@ from rest_framework.views import APIView
 
 from apps.core.exceptions import ApplicationError
 from apps.core.views_mixins import ClientScopedAPIView
+from apps.whmcs.exceptions import WhmcsTransportError
 from apps.whmcs.services import OrderService
 
 from .serializers import OrderCreateSerializer, OrderSerializer
@@ -75,9 +76,23 @@ class OrderListCreateView(ClientScopedAPIView):
                 nameservers=data.get("nameservers"),
                 client_ip=self.client_ip,
             )
+        except WhmcsTransportError:
+            # The outcome is unknown: WHMCS may have created the order and lost
+            # the response. The lock is deliberately kept, so an automatic retry
+            # with the same key cannot buy the same basket twice. The customer
+            # is told to look before trying again.
+            logger.error(
+                "order outcome unknown for client %s - lock kept", self.whmcs_client_id
+            )
+            raise ApplicationError(
+                "We could not confirm whether your order went through. "
+                "Check your orders before trying again.",
+                code="order_outcome_unknown",
+            ) from None
         except Exception:
             if key:
-                # Let the customer retry: nothing was recorded as completed.
+                # A rejected basket: nothing was created, so let them fix it and
+                # resubmit with the same key.
                 cache.delete(f"{key}:lock")
             raise
 

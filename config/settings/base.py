@@ -179,6 +179,21 @@ WHMCS = {
 }
 
 # ---------------------------------------------------------------------------
+# Ticket attachments
+# ---------------------------------------------------------------------------
+TICKET_ATTACHMENTS = {
+    "MAX_FILES": env.int("ATTACHMENT_MAX_FILES", default=5),
+    "MAX_BYTES_EACH": env.int("ATTACHMENT_MAX_MB_EACH", default=5) * 1024 * 1024,
+    "MAX_BYTES_TOTAL": env.int("ATTACHMENT_MAX_MB_TOTAL", default=15) * 1024 * 1024,
+    # Empty means "use the built-in list" in apps.whmcs.attachments.
+    "ALLOWED_EXTENSIONS": env.list("ATTACHMENT_ALLOWED_EXTENSIONS", default=[]),
+}
+
+# Refuse oversized uploads at the request level too, before any parsing.
+DATA_UPLOAD_MAX_MEMORY_SIZE = TICKET_ATTACHMENTS["MAX_BYTES_TOTAL"] + 1024 * 1024
+FILE_UPLOAD_MAX_MEMORY_SIZE = TICKET_ATTACHMENTS["MAX_BYTES_EACH"]
+
+# ---------------------------------------------------------------------------
 # DRF
 # ---------------------------------------------------------------------------
 REST_FRAMEWORK = {

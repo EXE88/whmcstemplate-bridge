@@ -14,6 +14,8 @@ from .serializers import (
     NameserverSerializer,
     ServicePasswordSerializer,
     ServiceSerializer,
+    UpgradeQuoteSerializer,
+    UpgradeSerializer,
 )
 
 
@@ -87,6 +89,48 @@ class ServicePasswordView(ClientScopedAPIView):
             self.whmcs_client_id, service_id, serializer.validated_data["new_password"]
         )
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class ServiceUpgradeOptionsView(ClientScopedAPIView):
+    @extend_schema(responses={200: dict})
+    def get(self, request, service_id: int):
+        return Response(ServiceService().upgrade_options(self.whmcs_client_id, service_id))
+
+
+class ServiceUpgradeQuoteView(ClientScopedAPIView):
+    """Pro-rata price of an upgrade, without ordering it."""
+
+    @extend_schema(request=UpgradeQuoteSerializer, responses={200: dict})
+    def post(self, request, service_id: int):
+        serializer = UpgradeQuoteSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        return Response(
+            ServiceService().quote_upgrade(
+                self.whmcs_client_id,
+                service_id,
+                new_product_id=data["new_product_id"],
+                billing_cycle=data["billing_cycle"],
+                promo_code=data.get("promo_code", ""),
+            )
+        )
+
+
+class ServiceUpgradeView(ClientScopedAPIView):
+    @extend_schema(request=UpgradeSerializer, responses={201: dict})
+    def post(self, request, service_id: int):
+        serializer = UpgradeSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        result = ServiceService().upgrade(
+            self.whmcs_client_id,
+            service_id,
+            new_product_id=data["new_product_id"],
+            billing_cycle=data["billing_cycle"],
+            payment_method=data["payment_method"],
+            promo_code=data.get("promo_code", ""),
+        )
+        return Response(result, status=status.HTTP_201_CREATED)
 
 
 class ServiceCancellationView(ClientScopedAPIView):

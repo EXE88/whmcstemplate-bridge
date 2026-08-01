@@ -41,6 +41,8 @@ BILLING_CYCLES = (
 
 DOMAIN_ACTIONS = {"register", "transfer"}
 
+ORDER_STATUSES = frozenset({"Pending", "Active", "Fraud", "Cancelled"})
+
 MAX_ITEMS = 20
 
 _ORDER_MAP = {
@@ -207,7 +209,7 @@ class OrderService(OwnedResourceMixin, BaseService):
     ) -> tuple[list[dict], int]:
         def fetch() -> tuple[list[dict], int]:
             params = {"userid": whmcs_client_id, **self.page_params(page)}
-            if status:
+            if status in ORDER_STATUSES:
                 params["status"] = status
             data = self.call(Action.GET_ORDERS, params)
             items = [self._order(raw) for raw in collection(data, "orders", "order")]

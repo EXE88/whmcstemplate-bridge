@@ -123,6 +123,35 @@ Rules this flow is built on:
   slide into each other.
 * Cancellation is allowed only while the order is `Pending`.
 
+## 5c. Attachments
+
+Upload is `multipart/form-data` on ticket creation and replies; WHMCS wants the
+files as *base64(json([{name, data: base64(bytes)}]))*, which is built in
+`apps/whmcs/attachments.py`.
+
+| Risk | Control |
+|---|---|
+| Executable or renderable uploads (`.php`, `.html`, `.svg`, `.js`) | `FORBIDDEN_EXTENSIONS` - blocked even if the allowlist is widened |
+| Path traversal / header injection via filename | `safe_filename` strips directories, separators and control characters |
+| Storage exhaustion | 5 files, 5MB each, 15MB per message (all env-tunable), plus Django's own upload ceilings |
+| Reading another customer's files | download re-reads the ticket, then requires `related_id` to be that ticket or one of *its* replies |
+| Staff-only notes | `type=note` is rejected; only `ticket` and `reply` exist in the serializer |
+| Stored XSS from a downloaded file | always `Content-Disposition: attachment`, `application/octet-stream`, `nosniff`, sandbox CSP |
+
+## 5d. Upgrades
+
+```
+GET  /hosting/services/<id>/upgrade-options/   plans in the same product group
+POST /hosting/services/<id>/upgrade/quote/     calconly - pro-rata price, no order
+POST /hosting/services/<id>/upgrade/           order + invoice + payment_url
+```
+
+The upgrade target must appear in `upgrade-options`, i.e. it must be in the same
+product group as the service's current plan. WHMCS keeps its configured upgrade
+paths out of the API, so the group is the closest safe approximation; without
+it, a customer could point the upgrade at an unrelated or internal product and
+have WHMCS bill them for that instead. Cross-group moves are a support action.
+
 ## 6. Caching
 
 Cache-aside, namespaced per owner, invalidated by version bump:
@@ -195,6 +224,9 @@ need for short TTLs.
 | GET/POST | `/api/v1/support/tickets/` | JWT |
 | GET/DELETE | `/api/v1/support/tickets/<id>/` | JWT |
 | POST | `/api/v1/support/tickets/<id>/replies/` | JWT |
+| GET | `/api/v1/support/tickets/<id>/attachment/` | JWT |
+| GET | `/api/v1/hosting/services/<id>/upgrade-options/` | JWT |
+| POST | `/api/v1/hosting/services/<id>/upgrade/quote/` `upgrade/` | JWT |
 | GET | `/api/v1/hosting/products/` `tld-pricing/` `domains/lookup/` | public |
 | GET | `/api/v1/orders/payment-methods/` | public |
 | GET/POST | `/api/v1/orders/` | JWT |

@@ -12,6 +12,9 @@ from .views import (
     ServiceDetailView,
     ServiceListView,
     ServicePasswordView,
+    ServiceUpgradeOptionsView,
+    ServiceUpgradeQuoteView,
+    ServiceUpgradeView,
     TldPricingView,
 )
 
@@ -34,6 +37,21 @@ urlpatterns = [
         "services/<int:service_id>/cancellation/",
         ServiceCancellationView.as_view(),
         name="service-cancellation",
+    ),
+    path(
+        "services/<int:service_id>/upgrade-options/",
+        ServiceUpgradeOptionsView.as_view(),
+        name="service-upgrade-options",
+    ),
+    path(
+        "services/<int:service_id>/upgrade/quote/",
+        ServiceUpgradeQuoteView.as_view(),
+        name="service-upgrade-quote",
+    ),
+    path(
+        "services/<int:service_id>/upgrade/",
+        ServiceUpgradeView.as_view(),
+        name="service-upgrade",
     ),
     # customer domains
     path("domains/", DomainListView.as_view(), name="domain-list"),

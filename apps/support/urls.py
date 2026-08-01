@@ -1,6 +1,12 @@
 from django.urls import path
 
-from .views import DepartmentListView, TicketDetailView, TicketListCreateView, TicketReplyView
+from .views import (
+    DepartmentListView,
+    TicketAttachmentView,
+    TicketDetailView,
+    TicketListCreateView,
+    TicketReplyView,
+)
 
 app_name = "support"
 
@@ -9,4 +15,9 @@ urlpatterns = [
     path("tickets/", TicketListCreateView.as_view(), name="ticket-list"),
     path("tickets/<int:ticket_id>/", TicketDetailView.as_view(), name="ticket-detail"),
     path("tickets/<int:ticket_id>/replies/", TicketReplyView.as_view(), name="ticket-reply"),
+    path(
+        "tickets/<int:ticket_id>/attachment/",
+        TicketAttachmentView.as_view(),
+        name="ticket-attachment",
+    ),
 ]

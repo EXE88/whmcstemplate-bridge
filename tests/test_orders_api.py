@@ -122,6 +122,29 @@ def test_idempotency_key_prevents_a_double_purchase(auth_client):
     assert route.call_count == 2
 
 
+@respx.mock
+def test_a_lost_response_does_not_allow_a_silent_second_purchase(auth_client):
+    respx.post(WHMCS_ENDPOINT).mock(
+        side_effect=[
+            httpx.Response(200, json=GATEWAYS),
+            httpx.ConnectTimeout("connection lost after the request was sent"),
+            httpx.Response(200, json=GATEWAYS),
+        ]
+    )
+
+    first = auth_client.post(
+        "/api/v1/orders/", data=_basket(), format="json", HTTP_IDEMPOTENCY_KEY="key-1"
+    )
+    retry = auth_client.post(
+        "/api/v1/orders/", data=_basket(), format="json", HTTP_IDEMPOTENCY_KEY="key-1"
+    )
+
+    assert first.status_code == 400
+    assert first.json()["error"]["code"] == "order_outcome_unknown"
+    # The same key cannot quietly place a second order.
+    assert retry.json()["error"]["code"] == "order_in_progress"
+
+
 def test_transfer_requires_an_epp_code(auth_client):
     response = auth_client.post(
         "/api/v1/orders/",

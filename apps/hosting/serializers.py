@@ -3,6 +3,8 @@ import re
 from django.contrib.auth.password_validation import validate_password
 from rest_framework import serializers
 
+from apps.whmcs.services.orders import BILLING_CYCLES
+
 HOSTNAME_RE = re.compile(r"^(?=.{1,253}$)([a-z0-9-]{1,63}\.)+[a-z]{2,63}$", re.IGNORECASE)
 
 
@@ -22,6 +24,16 @@ class ServicePasswordSerializer(serializers.Serializer):
     def validate_new_password(self, value: str) -> str:
         validate_password(value)
         return value
+
+
+class UpgradeQuoteSerializer(serializers.Serializer):
+    new_product_id = serializers.IntegerField(min_value=1)
+    billing_cycle = serializers.ChoiceField(choices=BILLING_CYCLES)
+    promo_code = serializers.CharField(max_length=50, required=False, allow_blank=True)
+
+
+class UpgradeSerializer(UpgradeQuoteSerializer):
+    payment_method = serializers.CharField(max_length=50)
 
 
 class CancellationSerializer(serializers.Serializer):

@@ -1,3 +1,5 @@
+from django.http import HttpResponse
+from django.utils.encoding import escape_uri_path
 from drf_spectacular.utils import extend_schema
 from rest_framework import status
 from rest_framework.response import Response
@@ -6,6 +8,7 @@ from apps.core.views_mixins import ClientScopedAPIView
 from apps.whmcs.services import SupportService
 
 from .serializers import (
+    AttachmentQuerySerializer,
     TicketCreateSerializer,
     TicketQuerySerializer,
     TicketReplySerializer,
@@ -42,6 +45,7 @@ class TicketListCreateView(ClientScopedAPIView):
             priority=data["priority"],
             service_id=data.get("service_id"),
             client_ip=self.client_ip,
+            files=read_uploads(data.get("attachments")),
         )
         return Response(ticket, status=status.HTTP_201_CREATED)
 
@@ -67,5 +71,42 @@ class TicketReplyView(ClientScopedAPIView):
             ticket_id,
             serializer.validated_data["message"],
             client_ip=self.client_ip,
+            files=read_uploads(serializer.validated_data.get("attachments")),
         )
         return Response(ticket, status=status.HTTP_201_CREATED)
+
+
+class TicketAttachmentView(ClientScopedAPIView):
+    """
+    Download one attachment belonging to one of the caller's tickets.
+
+    The bytes are streamed back through the bridge rather than linking to
+    WHMCS, so the ownership check cannot be skipped. The response is always a
+    download - never rendered inline - because an uploaded file served from our
+    own origin would otherwise be a stored-XSS vector.
+    """
+
+    @extend_schema(parameters=[AttachmentQuerySerializer], responses={200: bytes})
+    def get(self, request, ticket_id: int):
+        query = AttachmentQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        data = query.validated_data
+
+        filename, content = SupportService().get_attachment(
+            self.whmcs_client_id,
+            ticket_id,
+            kind=data["type"],
+            related_id=data["related_id"],
+            index=data["index"],
+        )
+
+        response = HttpResponse(content, content_type="application/octet-stream")
+        response["Content-Disposition"] = f'attachment; filename="{escape_uri_path(filename)}"'
+        response["X-Content-Type-Options"] = "nosniff"
+        response["Content-Security-Policy"] = "default-src 'none'; sandbox"
+        return response
+
+
+def read_uploads(files) -> list[tuple[str, bytes]]:
+    """Materialise uploaded files as ``(name, bytes)`` for the service layer."""
+    return [(upload.name, upload.read()) for upload in files or []]

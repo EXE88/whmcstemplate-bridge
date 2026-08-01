@@ -63,6 +63,9 @@ class Action(StrEnum):
     GET_QUOTES = "GetQuotes"
     ACCEPT_QUOTE = "AcceptQuote"
     GET_PAY_METHODS = "GetPayMethods"
+    #: Records money as received. Reachable only from a gateway callback that
+    #: has already been verified server-to-server - never from a client request.
+    ADD_INVOICE_PAYMENT = "AddInvoicePayment"
 
     # --- support ---
     GET_TICKETS = "GetTickets"

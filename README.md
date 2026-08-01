@@ -107,6 +107,7 @@ this flow enforces.
 
 ```bash
 python manage.py whmcs_ping        # check connectivity and credentials
+python manage.py reconcile_payments --dry-run   # payments taken but not yet in WHMCS
 pytest                             # run the suite (no network access needed)
 ruff check . && black --check .    # lint / format
 celery -A config worker -l info    # background jobs (needs CELERY_BROKER_URL)

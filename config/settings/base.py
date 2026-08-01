@@ -54,6 +54,7 @@ LOCAL_APPS = [
     "apps.support",
     "apps.hosting",
     "apps.orders",
+    "apps.payments",
 ]
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
@@ -176,6 +177,25 @@ WHMCS = {
     "CA_BUNDLE": env("WHMCS_CA_BUNDLE", default=""),
     "MAX_CONNECTIONS": env.int("WHMCS_MAX_CONNECTIONS", default=20),
     "LOG_PAYLOADS": env.bool("LOG_WHMCS_PAYLOADS", default=False),
+}
+
+# ---------------------------------------------------------------------------
+# Payments
+# ---------------------------------------------------------------------------
+PAYMENTS = {
+    # Where Zibal returns the browser. Must be this service's public origin.
+    "CALLBACK_BASE_URL": env("PAYMENT_CALLBACK_BASE_URL", default="http://127.0.0.1:8000"),
+    # Where we then send the customer - a page in the storefront.
+    "RESULT_URL": env("PAYMENT_RESULT_URL", default="http://localhost:3000/checkout/result"),
+    # WHMCS amount -> rial. 1 if WHMCS stores rial, 10 if it stores toman.
+    # Getting this wrong is a factor-of-ten error in real money.
+    "AMOUNT_MULTIPLIER": env.int("PAYMENT_AMOUNT_MULTIPLIER", default=1),
+    "ZIBAL": {
+        # "zibal" is the gateway's own sandbox merchant.
+        "MERCHANT": env("ZIBAL_MERCHANT", default="zibal"),
+        "TIMEOUT": env.float("ZIBAL_TIMEOUT", default=20.0),
+        "VERIFY_RETRIES": env.int("ZIBAL_VERIFY_RETRIES", default=2),
+    },
 }
 
 # ---------------------------------------------------------------------------

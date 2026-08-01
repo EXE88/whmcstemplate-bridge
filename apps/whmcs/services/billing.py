@@ -1,11 +1,17 @@
 """Invoices, transactions, credit and quotes - always scoped to one client."""
 
-from apps.core.cache import client_namespace, get_or_set
+import logging
+
+from django.utils import timezone
+
+from apps.core.cache import client_namespace, get_or_set, invalidate
 from apps.core.pagination import PageRequest
 
 from ..actions import Action
 from ..normalizers import collection, iso_date, pick, text, to_int, to_money, total_of
 from .base import BaseService, OwnedResourceMixin
+
+logger = logging.getLogger(__name__)
 
 INVOICE_STATUSES = frozenset(
     {"Draft", "Unpaid", "Paid", "Overdue", "Cancelled", "Refunded", "Collections"}
@@ -83,6 +89,9 @@ class BillingService(OwnedResourceMixin, BaseService):
         self.assert_owned(data.get("userid"), whmcs_client_id)
 
         invoice = pick(data, _INVOICE_LIST_MAP)
+        # GetInvoice reports the outstanding amount; older versions and the list
+        # call do not, in which case the full total is what is due.
+        invoice["balance"] = to_money(data.get("balance") or invoice["total"])
         invoice["items"] = [
             pick(
                 raw,
@@ -103,6 +112,51 @@ class BillingService(OwnedResourceMixin, BaseService):
         ]
         invoice["notes"] = text(data.get("notes"))
         return invoice
+
+    def record_payment(
+        self,
+        whmcs_client_id: int,
+        invoice_id: int,
+        *,
+        transaction_id: str,
+        gateway: str,
+        amount: str,
+        fees: str = "0",
+        paid_at: str | None = None,
+    ) -> None:
+        """
+        Mark an invoice as paid.
+
+        This is the moment money becomes real in WHMCS: it settles the invoice
+        and lets WHMCS' automation provision the order. It must only ever be
+        called after a gateway has confirmed the payment server-to-server -
+        never in response to a browser redirect or any client-supplied field.
+
+        ``transaction_id`` is the gateway's own reference. WHMCS rejects a
+        duplicate, which is the last line of defence against a replayed
+        callback crediting an invoice twice.
+        """
+        self.call(
+            Action.ADD_INVOICE_PAYMENT,
+            {
+                "invoiceid": invoice_id,
+                "transid": transaction_id,
+                "gateway": gateway,
+                "amount": amount,
+                "fees": fees,
+                "date": paid_at or timezone.now().strftime("%Y-%m-%d %H:%M:%S"),
+            },
+        )
+        self.invalidate_for(whmcs_client_id, "invoices", "transactions")
+        invalidate(client_namespace(whmcs_client_id, "services"))
+        invalidate(client_namespace(whmcs_client_id, "orders"))
+        logger.info(
+            "payment recorded: client=%s invoice=%s gateway=%s transid=%s",
+            whmcs_client_id,
+            invoice_id,
+            gateway,
+            transaction_id,
+        )
 
     def invoice_payment_url(self, invoice_id: int) -> str:
         """

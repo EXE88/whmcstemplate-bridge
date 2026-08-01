@@ -160,6 +160,18 @@ nginx and TLS still terminate in front of it, with the same
 that the API also returns in `X-Request-ID` and inside error bodies, so a
 customer complaint maps to exact log lines.
 
+**Payment reconciliation** - a customer can be charged while WHMCS is
+unreachable. Those rows stay at `paid` instead of `recorded`; a cron entry
+closes them:
+
+```cron
+*/15 * * * * cd /srv/whmcs-bridge && .venv/bin/python manage.py reconcile_payments >> /var/log/bridge-reconcile.log 2>&1
+```
+
+Watch for rows stuck at `paid` or `mismatch` in
+`/admin/payments/paymentattempt/` - each one is a customer whose money moved
+without their invoice reflecting it.
+
 **Backups** - only Postgres holds state worth keeping (the email ↔ WHMCS client
 id mapping and JWT blacklist); everything else lives in WHMCS.
 

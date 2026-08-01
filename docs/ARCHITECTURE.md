@@ -123,6 +123,45 @@ Rules this flow is built on:
   slide into each other.
 * Cancellation is allowed only while the order is `Pending`.
 
+## 5b-2. Payment (native Zibal, no WHMCS page)
+
+The customer never sees the WHMCS template. The bridge drives the gateway
+itself and tells WHMCS afterwards that the invoice is paid.
+
+```
+POST /billing/invoices/34/pay/          -> {redirect_url, payment_id, amount_rial}
+  bridge: re-reads the invoice from WHMCS (amount comes from there, never from
+          the request), writes a PaymentAttempt row, calls Zibal /v1/request
+browser -> https://gateway.zibal.ir/start/<trackId>        (card entry, on Zibal)
+Zibal   -> GET /payments/callback/zibal/?trackId=&success=&status=&orderId=
+  bridge: POST Zibal /v1/verify  <- the ONLY thing that decides the outcome
+          amount check -> AddInvoicePayment in WHMCS -> status RECORDED
+        -> 302 to PAYMENT_RESULT_URL?status=success&invoice=34&payment=<uuid>
+GET /payments/<uuid>/                   -> the storefront confirms for itself
+```
+
+Card data still never touches the bridge - Zibal hosts the card form, as
+Shaparak requires. What disappears is the detour through `viewinvoice.php`.
+
+| Risk | Control |
+|---|---|
+| Forged callback (`?success=1` typed by hand) | the query string only selects *which* attempt to verify; `/v1/verify` server-to-server decides everything |
+| Paying someone else's invoice | the invoice is read through `BillingService.get_invoice`, which enforces ownership before an attempt row exists |
+| Client dictating the amount | amount is derived from the invoice balance in WHMCS; request body fields named `amount` are ignored |
+| Replayed callback crediting twice | unique `track_id`, `select_for_update`, status guard, and WHMCS rejects a duplicate `transid` |
+| Paid for less than the invoice | verified amount is compared to the requested amount; a mismatch parks the row as `MISMATCH` and never credits |
+| Open redirect via the callback | the result URL is built only from settings plus our own row |
+| Money taken but WHMCS unreachable | the row stays `PAID` (never `FAILED`) so it can be reconciled; the customer sees "pending", not an error |
+| Toman/rial confusion | `PAYMENT_AMOUNT_MULTIPLIER` is explicit configuration, not a guess |
+
+`AddInvoicePayment` is the one WHMCS action that turns a record into money
+received. It is reachable from exactly one place - `BillingService.record_payment`,
+called only after a successful verify - and from no serializer or view.
+
+Rows that end up `PAID` but not `RECORDED` are the reconciliation queue: the
+customer was charged and WHMCS does not know yet. Surface them in the admin
+(`/admin/payments/paymentattempt/?status__exact=paid`).
+
 ## 5c. Attachments
 
 Upload is `multipart/form-data` on ticket creation and replies; WHMCS wants the
@@ -229,6 +268,9 @@ need for short TTLs.
 | POST | `/api/v1/hosting/services/<id>/upgrade/quote/` `upgrade/` | JWT |
 | GET | `/api/v1/hosting/products/` `tld-pricing/` `domains/lookup/` | public |
 | GET | `/api/v1/orders/payment-methods/` | public |
+| POST | `/api/v1/billing/invoices/<id>/pay/` | JWT |
+| GET | `/api/v1/payments/` `<uuid>/` | JWT |
+| GET | `/api/v1/payments/callback/zibal/` | public (gateway) |
 | GET/POST | `/api/v1/orders/` | JWT |
 | GET | `/api/v1/orders/<id>/` | JWT |
 | POST | `/api/v1/orders/<id>/cancel/` | JWT |

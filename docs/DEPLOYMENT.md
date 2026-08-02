@@ -179,9 +179,28 @@ id mapping and JWT blacklist); everything else lives in WHMCS.
 sudo -u postgres pg_dump bridge | gzip > /var/backups/bridge-$(date +%F).sql.gz
 ```
 
-**Scaling** - WHMCS calls take 1-3.5s, so concurrency comes from threads, not
-CPU. Raise `GUNICORN_THREADS` before `GUNICORN_WORKERS`, and remember WHMCS
-itself is the bottleneck: raise `CACHE_TTL_*` before adding capacity.
+**Performance** - a WHMCS API call costs ~1.1s of PHP on the WHMCS server
+(network round trip is only ~60ms of that), so everything depends on avoiding
+those calls:
+
+1. `REDIS_URL` **must** be set. Without it each gunicorn worker keeps its own
+   in-process cache, so a customer misses the cache roughly two times in three.
+2. Warm the public catalogue from beat, so no customer ever pays for it:
+   ```cron
+   */10 * * * * cd /srv/whmcs-bridge && .venv/bin/python -c "from apps.whmcs.tasks import warm_catalogue_cache as w; w()"
+   ```
+   (or let `whmcs-bridge-beat` schedule `whmcs.sync.warm_catalogue`.)
+3. Concurrency comes from threads, not CPU: raise `GUNICORN_THREADS` before
+   `GUNICORN_WORKERS`.
+4. Check the numbers rather than guessing:
+   ```bash
+   sudo -u bridge .venv/bin/python manage.py benchmark_api --client-id 1
+   ```
+   It prints cold vs warm timings per read. Warm should be single-digit ms; if
+   it is not, Redis is not being used.
+
+If cold calls are still ~1s, the remaining work is on the WHMCS box - PHP
+opcache, MySQL slow queries, slow addon modules.
 
 **Keys** - `DJANGO_SECRET_KEY` and `JWT_SIGNING_KEY` must differ from any
 development value. Rotating `JWT_SIGNING_KEY` logs every customer out at once.

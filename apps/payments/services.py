@@ -65,7 +65,8 @@ class PaymentService:
         whmcs_client_id = int(user.whmcs_client_id)
 
         # Ownership and amount both come from WHMCS, not from the request.
-        invoice = self.billing.get_invoice(whmcs_client_id, invoice_id)
+        # Never from cache: the balance about to be charged must be current.
+        invoice = self.billing.get_invoice(whmcs_client_id, invoice_id, fresh=True)
         if invoice["status"] not in PAYABLE_STATUSES:
             raise ApplicationError(
                 "This invoice is not payable.",

@@ -2,7 +2,7 @@
 
 import logging
 
-from apps.core.cache import client_namespace, get_or_set
+from apps.core.cache import client_namespace, get_or_set, invalidate
 from apps.core.exceptions import ResourceNotFound
 from apps.core.pagination import PageRequest
 
@@ -111,7 +111,26 @@ class SupportService(OwnedResourceMixin, BaseService):
             status or "all",
         )
 
-    def get_ticket(self, whmcs_client_id: int, ticket_id: int) -> dict:
+    def get_ticket(self, whmcs_client_id: int, ticket_id: int, *, fresh: bool = False) -> dict:
+        """
+        Read one ticket.
+
+        Cached: a WHMCS call costs ~1.1s, and this is read both by the customer
+        and as the ownership gate in front of every write. ``fresh=True`` after
+        a write, when the caller needs to see its own change.
+        """
+        namespace = client_namespace(whmcs_client_id, "tickets")
+        if fresh:
+            invalidate(namespace)
+        return get_or_set(
+            namespace,
+            "tickets",
+            lambda: self._fetch_ticket(whmcs_client_id, ticket_id),
+            "detail",
+            ticket_id,
+        )
+
+    def _fetch_ticket(self, whmcs_client_id: int, ticket_id: int) -> dict:
         data = self.call(Action.GET_TICKET, {"ticketid": ticket_id, "repliessort": "ASC"})
         self.assert_owned(data.get("userid"), whmcs_client_id)
 
@@ -215,11 +234,9 @@ class SupportService(OwnedResourceMixin, BaseService):
             params["attachments"] = attachments.encode(files)
 
         self.call(Action.ADD_TICKET_REPLY, params)
-        self.invalidate_for(whmcs_client_id, "tickets")
-        return self.get_ticket(whmcs_client_id, ticket_id)
+        return self.get_ticket(whmcs_client_id, ticket_id, fresh=True)
 
     def close_ticket(self, whmcs_client_id: int, ticket_id: int) -> dict:
         self.get_ticket(whmcs_client_id, ticket_id)
         self.call(Action.UPDATE_TICKET, {"ticketid": ticket_id, "status": "Closed"})
-        self.invalidate_for(whmcs_client_id, "tickets")
-        return self.get_ticket(whmcs_client_id, ticket_id)
+        return self.get_ticket(whmcs_client_id, ticket_id, fresh=True)

@@ -79,6 +79,17 @@ class ServiceService(OwnedResourceMixin, BaseService):
         )
 
     def get_service(self, whmcs_client_id: int, service_id: int) -> dict:
+        """Cached: this is also the ownership gate in front of every write on a
+        service, and each uncached read costs ~1.1s upstream."""
+        return get_or_set(
+            client_namespace(whmcs_client_id, "services"),
+            "client",
+            lambda: self._fetch_service(whmcs_client_id, service_id),
+            "detail",
+            service_id,
+        )
+
+    def _fetch_service(self, whmcs_client_id: int, service_id: int) -> dict:
         data = self.call(
             Action.GET_CLIENTS_PRODUCTS,
             {"clientid": whmcs_client_id, "serviceid": service_id},
@@ -299,6 +310,16 @@ class DomainService(OwnedResourceMixin, BaseService):
         )
 
     def get_domain(self, whmcs_client_id: int, domain_id: int) -> dict:
+        """Cached for the same reason as :meth:`ServiceService.get_service`."""
+        return get_or_set(
+            client_namespace(whmcs_client_id, "domains"),
+            "client",
+            lambda: self._fetch_domain(whmcs_client_id, domain_id),
+            "detail",
+            domain_id,
+        )
+
+    def _fetch_domain(self, whmcs_client_id: int, domain_id: int) -> dict:
         data = self.call(
             Action.GET_CLIENTS_DOMAINS,
             {"clientid": whmcs_client_id, "domainid": domain_id},
@@ -310,10 +331,12 @@ class DomainService(OwnedResourceMixin, BaseService):
 
     def get_nameservers(self, whmcs_client_id: int, domain_id: int) -> list[str]:
         self.get_domain(whmcs_client_id, domain_id)
+        return self._fetch_nameservers(domain_id)
+
+    def _fetch_nameservers(self, domain_id: int) -> list[str]:
+        """Ownership is the caller's job - keeps writes from re-checking twice."""
         data = self.call(Action.DOMAIN_GET_NAMESERVERS, {"domainid": domain_id})
-        return [
-            text(data.get(f"ns{index}")) for index in range(1, 6) if data.get(f"ns{index}")
-        ]
+        return [text(data.get(f"ns{index}")) for index in range(1, 6) if data.get(f"ns{index}")]
 
     def update_nameservers(
         self, whmcs_client_id: int, domain_id: int, nameservers: list[str]
@@ -325,7 +348,9 @@ class DomainService(OwnedResourceMixin, BaseService):
         params.update({f"ns{i}": ns for i, ns in enumerate(nameservers, start=1)})
         self.call(Action.DOMAIN_UPDATE_NAMESERVERS, params)
         self.invalidate_for(whmcs_client_id, "domains")
-        return self.get_nameservers(whmcs_client_id, domain_id)
+        # Ownership was established above; re-reading the domain would be a
+        # second second of latency for nothing.
+        return self._fetch_nameservers(domain_id)
 
     def get_lock_status(self, whmcs_client_id: int, domain_id: int) -> bool:
         self.get_domain(whmcs_client_id, domain_id)

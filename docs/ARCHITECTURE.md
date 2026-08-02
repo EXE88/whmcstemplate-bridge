@@ -214,7 +214,53 @@ Recommended TTLs (all in `.env`):
 
 Never cache: login, EPP codes, payment URLs, anything with a one-time value.
 
-## 7. What to make async, and when
+## 6b. Performance: the upstream is the budget
+
+Measured against the production WHMCS (8.12.1):
+
+```
+DNS lookup                 255 ms   (once)
+TCP connect                 59 ms
+TLS handshake               97 ms   -> 156 ms per NEW connection
+WhmcsDetails (warm conn)  1108 ms
+GetProducts               1318 ms
+GetCurrencies             1126 ms
+median warm call          1147 ms
+same call, fresh conn/req 5006 ms   -> keep-alive saves ~3.9 s
+```
+
+Network round trip is 59ms; the other ~1000ms is PHP executing inside WHMCS.
+Nothing in this codebase can make a WHMCS call fast - so the design goal is to
+make **fewer** of them.
+
+Four mechanisms, in order of how much they buy:
+
+1. **Don't call at all.** Cache-aside with per-owner namespaces. A warm read is
+   ~0ms locally, ~2ms over Redis, against 1100ms upstream.
+2. **Serve stale, refresh behind.** An expired entry is returned immediately and
+   refreshed in a background thread, with a lock so only one refresher runs.
+   Expiry therefore costs one *background* call, not a 1.1s stall for whoever
+   happened to arrive first. Pass `stale_ok=False` where staleness would be
+   wrong - invoice balances about to be charged do.
+3. **Collapse N+1.** Every avoidable second read was removed: a ticket reply is
+   2 upstream calls instead of 3, a nameserver update 3 instead of 4, the credit
+   balance reuses the cached profile instead of re-fetching the client record.
+   Tests assert the call counts so they cannot creep back.
+4. **Fan out what remains.** `apps/core/aggregate.gather` runs independent reads
+   in threads. Measured on 5 real uncached calls: **8050ms sequential → 3695ms
+   (2.2x)**. `/api/v1/dashboard/` uses it, and returns partial data with an
+   `unavailable` list rather than failing whole if one section breaks.
+
+Keep-alive matters more than it looks: the client is pooled per process, so
+gunicorn workers must be long-lived (they are) and `preload_app` is on.
+
+**In production, `REDIS_URL` is not optional.** Without it the cache is
+per-process locmem, so with 3 gunicorn workers a customer hits a cold cache
+roughly two times in three, and background refreshes are duplicated per worker.
+
+If a WHMCS call is still ~1s after all of this, the remaining fix is on the
+WHMCS box, not here: PHP opcache, MySQL slow queries, and disabled/slow addon
+modules are the usual causes.
 
 The bridge is ASGI-first and ships both a sync and an async transport.
 

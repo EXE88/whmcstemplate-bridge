@@ -83,7 +83,25 @@ class BillingService(OwnedResourceMixin, BaseService):
             status or "all",
         )
 
-    def get_invoice(self, whmcs_client_id: int, invoice_id: int) -> dict:
+    def get_invoice(self, whmcs_client_id: int, invoice_id: int, *, fresh: bool = False) -> dict:
+        """
+        Read one invoice.
+
+        Cached like everything else, but anything about to move money passes
+        ``fresh=True``: an invoice that was paid two minutes ago must not be
+        billed again from a stale copy.
+        """
+        if fresh:
+            return self._fetch_invoice(whmcs_client_id, invoice_id)
+        return get_or_set(
+            client_namespace(whmcs_client_id, "invoices"),
+            "invoices",
+            lambda: self._fetch_invoice(whmcs_client_id, invoice_id),
+            "detail",
+            invoice_id,
+        )
+
+    def _fetch_invoice(self, whmcs_client_id: int, invoice_id: int) -> dict:
         data = self.call(Action.GET_INVOICE, {"invoiceid": invoice_id})
         # WHMCS returns the invoice regardless of who asks - enforce ownership.
         self.assert_owned(data.get("userid"), whmcs_client_id)
@@ -198,15 +216,18 @@ class BillingService(OwnedResourceMixin, BaseService):
         """
         GetCredits returns the credit *log*, not a balance, so the authoritative
         figure comes from the client record; the log is exposed alongside it.
+
+        The client record comes from ``AccountService.get_profile``, which is
+        already cached - fetching it again here would add a second of latency
+        for data we usually hold.
         """
-        details = self.call(
-            Action.GET_CLIENTS_DETAILS, {"clientid": whmcs_client_id, "stats": False}
-        )
-        client = details.get("client") or details
+        from .accounts import AccountService
+
+        profile = AccountService(self.client).get_profile(whmcs_client_id)
         log = self.call(Action.GET_CREDITS, {"clientid": whmcs_client_id, "limitnum": 10})
         return {
-            "balance": to_money(client.get("credit")),
-            "currency_code": text(client.get("currency_code")),
+            "balance": to_money(profile.get("credit")),
+            "currency_code": text(profile.get("currency_code")),
             "entries": [
                 pick(
                     raw,
